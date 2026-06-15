@@ -1,0 +1,416 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── Users & Billing ────────────────────────────────────────
+
+model User {
+  id              String   @id @default(cuid())
+  clerkId         String   @unique
+  email           String   @unique
+  name            String?
+  avatarUrl       String?
+  timezone        String   @default("America/New_York")
+  plan            Plan     @default(FREE)
+  stripeCustomerId String?
+  stripeSubId     String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  trades          Trade[]
+  analyses        TradeAnalysis[]
+  psychCheckins   PsychCheckin[]
+  goals           Goal[]
+  propAccounts    PropAccount[]
+  weeklyReports   WeeklyReport[]
+  patterns        Pattern[]
+  workspaces      Workspace[]
+  chatMessages    CoachMessage[]
+
+  @@index([clerkId])
+}
+
+enum Plan {
+  FREE
+  PRO
+  ELITE
+}
+
+// ─── Trades ─────────────────────────────────────────────────
+
+model Trade {
+  id              String      @id @default(cuid())
+  userId          String
+  user            User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Core trade data
+  symbol          String
+  direction       Direction
+  entryPrice      Float
+  exitPrice       Float?
+  stopLoss        Float?
+  takeProfit      Float?
+  quantity        Float
+  entryTime       DateTime
+  exitTime        DateTime?
+  status          TradeStatus @default(OPEN)
+
+  // Results
+  pnl             Float?
+  pnlPercent      Float?
+  rMultiple       Float?
+  commission      Float       @default(0)
+  netPnl          Float?
+
+  // Context
+  setup           String?
+  session         TradingSession?
+  marketCondition String?
+  notes           String?
+  rating          Int?          // 1-5 user self-rating
+  tags            String[]
+
+  // Screenshots
+  screenshots     TradeScreenshot[]
+
+  // AI
+  analysis        TradeAnalysis?
+  grade           String?       // A+, A, B, C, D, F
+
+  // Prop firm
+  propAccountId   String?
+  propAccount     PropAccount?  @relation(fields: [propAccountId], references: [id])
+
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([userId, entryTime])
+  @@index([userId, symbol])
+}
+
+enum Direction {
+  LONG
+  SHORT
+}
+
+enum TradeStatus {
+  OPEN
+  CLOSED
+  CANCELLED
+}
+
+enum TradingSession {
+  PREMARKET
+  OPEN        // 9:30-10:30
+  MIDMORNING  // 10:30-12:00
+  MIDDAY      // 12:00-14:00
+  AFTERNOON   // 14:00-16:00
+  AFTERHOURS
+}
+
+model TradeScreenshot {
+  id        String   @id @default(cuid())
+  tradeId   String
+  trade     Trade    @relation(fields: [tradeId], references: [id], onDelete: Cascade)
+  s3Key     String
+  url       String
+  type      ScreenshotType
+  aiAnalysis Json?   // Chart analysis from GPT-4o vision
+  createdAt DateTime @default(now())
+}
+
+enum ScreenshotType {
+  ENTRY
+  EXIT
+  OVERVIEW
+  CUSTOM
+}
+
+// ─── AI Analysis ────────────────────────────────────────────
+
+model TradeAnalysis {
+  id              String   @id @default(cuid())
+  tradeId         String   @unique
+  trade           Trade    @relation(fields: [tradeId], references: [id], onDelete: Cascade)
+  userId          String
+  user            User     @relation(fields: [userId], references: [id])
+
+  grade           String   // A+, A, B, C, D, F
+  gradeScore      Float    // 0-100
+
+  // Entry/Exit quality
+  entryQuality    Float    // 0-100
+  exitQuality     Float    // 0-100
+  riskManagement  Float    // 0-100
+  execution       Float    // 0-100
+
+  strengths       String[]
+  weaknesses      String[]
+  recommendations String[]
+
+  // Detected mistakes
+  mistakes        DetectedMistake[]
+
+  // Replay
+  whatHappened    String
+  whatWentRight   String
+  whatWentWrong   String
+  altEntry        String?
+  altStop         String?
+  altTarget       String?
+  lessonsLearned  String[]
+
+  rawResponse     Json     // Full AI response
+  modelUsed       String
+  tokensUsed      Int
+
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
+
+model DetectedMistake {
+  id           String        @id @default(cuid())
+  analysisId   String
+  analysis     TradeAnalysis @relation(fields: [analysisId], references: [id], onDelete: Cascade)
+  userId       String
+
+  type         MistakeType
+  confidence   Float         // 0-1
+  description  String
+  impact       Float         // estimated $ impact
+  severity     Severity
+
+  createdAt    DateTime @default(now())
+
+  @@index([userId, type])
+}
+
+enum MistakeType {
+  OVERTRADING
+  REVENGE_TRADING
+  FOMO_ENTRY
+  CHASING_PRICE
+  LATE_ENTRY
+  EARLY_EXIT
+  MOVING_STOPS
+  BREAKING_RULES
+  NEWS_TRADING
+  POOR_RR
+  LACK_OF_PATIENCE
+  EMOTIONAL_TRADING
+  OVERSIZING
+  UNDERSIZING
+}
+
+enum Severity {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+// ─── Psychology ──────────────────────────────────────────────
+
+model PsychCheckin {
+  id           String   @id @default(cuid())
+  userId       String
+  user         User     @relation(fields: [userId], references: [id])
+
+  date         DateTime @default(now())
+  confidence   Int      // 1-10
+  stress       Int      // 1-10
+  discipline   Int      // 1-10
+  focus        Int      // 1-10
+  mood         Int      // 1-10
+  notes        String?
+
+  // AI correlation note
+  aiNote       String?  // e.g. "Win rate drops 24% when confidence < 5"
+
+  @@index([userId, date])
+}
+
+// ─── Patterns ────────────────────────────────────────────────
+
+model Pattern {
+  id           String      @id @default(cuid())
+  userId       String
+  user         User        @relation(fields: [userId], references: [id])
+
+  type         PatternType
+  title        String
+  description  String
+  dataPoints   Int         // how many trades support this
+  confidence   Float       // 0-1
+  impact       String      // e.g. "+$340 avg"
+  actionable   String      // recommended action
+
+  discoveredAt DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([userId])
+}
+
+enum PatternType {
+  BEST_SETUP
+  WORST_SETUP
+  BEST_SESSION
+  WORST_SESSION
+  BEST_WEEKDAY
+  WORST_WEEKDAY
+  STREAK_TILT
+  TIME_BASED
+  SYMBOL_BASED
+  SIZE_BASED
+  CUSTOM
+}
+
+// ─── Goals ───────────────────────────────────────────────────
+
+model Goal {
+  id          String     @id @default(cuid())
+  userId      String
+  user        User       @relation(fields: [userId], references: [id])
+
+  type        GoalType
+  cadence     GoalCadence
+  title       String
+  description String?
+  target      Float?
+  unit        String?    // e.g. "trades", "%", "$"
+  current     Float      @default(0)
+  completed   Boolean    @default(false)
+
+  startDate   DateTime
+  endDate     DateTime
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([userId])
+}
+
+enum GoalType {
+  BEHAVIORAL
+  RISK
+  EXECUTION
+  PNL
+  WINRATE
+  MISTAKE_REDUCTION
+}
+
+enum GoalCadence {
+  DAILY
+  WEEKLY
+  MONTHLY
+}
+
+// ─── Reports ─────────────────────────────────────────────────
+
+model WeeklyReport {
+  id              String   @id @default(cuid())
+  userId          String
+  user            User     @relation(fields: [userId], references: [id])
+
+  weekStart       DateTime
+  weekEnd         DateTime
+
+  totalTrades     Int
+  winRate         Float
+  netPnl          Float
+  avgRMultiple    Float?
+
+  topProblems     Json     // [{ mistake, count, cost }]
+  topStrengths    Json     // [{ strength, description }]
+  mostExpensive   Json     // { mistake, totalCost }
+  improvementPlan Json     // [{ action, priority }]
+
+  aiSummary       String
+
+  createdAt       DateTime @default(now())
+
+  @@unique([userId, weekStart])
+}
+
+// ─── Prop Firm ───────────────────────────────────────────────
+
+model PropAccount {
+  id               String   @id @default(cuid())
+  userId           String
+  user             User     @relation(fields: [userId], references: [id])
+
+  firm             PropFirm
+  accountSize      Float
+  currentBalance   Float
+  trailingDrawdown Float
+  maxDailyLoss     Float
+  targetProfit     Float?
+  consistencyRule  Float?   // max % of profit from one day
+  phase            String?  // "Evaluation", "Funded"
+
+  trades           Trade[]
+  healthScore      Float    @default(100) // 0-100
+  status           PropStatus @default(ACTIVE)
+
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+}
+
+enum PropFirm {
+  TOPSTEP
+  APEX
+  MYFUNDEDFUTURES
+  FTMO
+  E2T
+  OTHER
+}
+
+enum PropStatus {
+  ACTIVE
+  AT_RISK
+  PASSED
+  FAILED
+}
+
+// ─── Workspace / Dashboard Builder ───────────────────────────
+
+model Workspace {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+
+  name      String
+  layout    Json     // grid layout config (react-grid-layout)
+  widgets   Json     // widget configurations
+  theme     String   @default("dark")
+  isDefault Boolean  @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// ─── AI Coach Chat ───────────────────────────────────────────
+
+model CoachMessage {
+  id        String      @id @default(cuid())
+  userId    String
+  user      User        @relation(fields: [userId], references: [id])
+
+  role      MessageRole
+  content   String
+  context   Json?       // trade data injected into context
+
+  createdAt DateTime @default(now())
+
+  @@index([userId, createdAt])
+}
+
+enum MessageRole {
+  USER
+  ASSISTANT
+}
