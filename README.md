@@ -13,6 +13,30 @@ TradeReview AI - A comprehensive SaaS platform for day traders to analyze trades
 - **Prop Firm Tracker** - Monitor funded account health and compliance
 - **Weekly Reports** - AI-generated performance summaries
 
+## 🏗️ Architecture
+
+```
+Users
+  ↓
+Vercel (Frontend)
+  ↓
+Railway (Backend API)
+  ↓
+PostgreSQL Database
+(Supabase or Neon)
+
+AI Requests
+  ↓
+OpenAI / Anthropic
+```
+
+The G7-Edge platform follows a modern cloud-native architecture:
+
+- **Frontend**: Deployed on Vercel for optimal performance and automatic scaling
+- **Backend API**: Runs on Railway providing compute resources for API endpoints
+- **Database**: PostgreSQL (hosted on Supabase or Neon) for reliable data persistence
+- **AI Integration**: Connects to OpenAI and Anthropic APIs for intelligent trade analysis
+
 ## 📁 Project Structure
 
 ```
